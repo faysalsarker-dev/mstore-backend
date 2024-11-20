@@ -1,7 +1,7 @@
 const express = require("express");
 const bcrypt = require("bcrypt");
 const cors = require("cors");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
 
 const app = express();
@@ -25,6 +25,7 @@ async function run() {
   try {
     const db = client.db("undefind");
     const users = db.collection("users");
+    const cards = db.collection("cards");
 
     app.get("/users", async (req, res) => {
         const page = parseInt(req.query.page) || 1; 
@@ -47,7 +48,35 @@ async function run() {
         }
       });
       
+app.get('/single-user/:id',async(req,res)=>{
+  const id= req.params.id
+  const query = {_id:new ObjectId(id)}
+  const result = await users.findOne(query);
+  res.send(result)
+})
 
+
+app.patch("/update-user:id", async (req, res) => {
+  const id = req.params.id;
+  const data = req.body;
+  const query = { _id: new ObjectId(id) };
+  const options = { upsert: true };
+  console.log(data);
+  const info = {
+    $set: {
+      ...data,
+    },
+  };
+  const result = await users.updateOne(query, info, options);
+  res.send(result);
+});
+
+app.delete('/delete-user:id',async(req,res)=>{
+  const id = req.params.id;
+  const query = {_id:new ObjectId(id)}
+  const result = await users.deleteOne(query)
+  res.send(result)
+})
     // Example in Express.js
     app.post("/check-username", async (req, res) => {
       const { username } = req.body;
@@ -76,6 +105,81 @@ async function run() {
       const result = await users.insertOne(data);
       res.send(result);
     });
+
+    app.post('/add-cards',async(req,res)=>{
+      const data = req.body;
+      const result = await cards.insertOne(data);
+      res.send(result);
+    })
+    app.get('/all-cards', async (req, res) => {
+      try {
+        // Extract query parameters from the URL using req.query
+        const {
+          page = 1,
+          limit = 10,
+          sortField = 'createdAt',
+          sortOrder = 'desc',
+          search = '',
+          filter = 'All', // Filter for card types like Visa or MasterCard
+          expirySort = 'asc' // Expiry date sort order
+        } = req.query;
+    
+        // Convert pagination parameters to numbers
+        const pageNumber = parseInt(page);
+        const limitNumber = parseInt(limit);
+    
+        // Validate and sanitize the input values (to prevent invalid queries)
+        if (isNaN(pageNumber) || pageNumber <= 0) {
+          return res.status(400).json({ message: "Invalid page number" });
+        }
+        if (isNaN(limitNumber) || limitNumber <= 0) {
+          return res.status(400).json({ message: "Invalid limit number" });
+        }
+    
+        // Calculate the number of documents to skip for pagination
+        const skip = (pageNumber - 1) * limitNumber;
+    
+        // Build the search filter (search by card number or other fields)
+        const searchFilter = search ? { cardNumber: { $regex: search, $options: 'i' } } : {};
+    
+        // Build the filter for card types if provided (e.g., Visa or MasterCard)
+        const typeFilter = filter !== 'All' ? { type: filter } : {};
+    
+        // Combine search and type filters
+        const combinedFilter = { ...searchFilter, ...typeFilter };
+    
+        // Build the sort object based on the query
+        const sortOptions = {};
+        sortOptions[sortField] = sortOrder === 'asc' ? 1 : -1;
+    
+        // Add additional sorting for expiry date if needed
+        if (sortField !== 'expiryDate' && expirySort) {
+          sortOptions['expiryDate'] = expirySort === 'asc' ? 1 : -1;
+        }
+    
+        // Retrieve paginated, sorted, and filtered results
+        const result = await cards
+          .find(combinedFilter) // Apply both search and type filters
+          .sort(sortOptions) // Sort by the requested field and order
+          .skip(skip) // Apply pagination skip
+          .limit(limitNumber) // Apply pagination limit
+          .toArray();
+    
+        // Get the total count for pagination purposes
+        const total = await cards.countDocuments(combinedFilter);
+    
+        // Send the paginated result along with pagination info
+        res.send({
+          data: result,
+          currentPage: pageNumber,
+          totalPages: Math.ceil(total / limitNumber),
+          totalItems: total,
+        });
+      } catch (error) {
+        res.status(500).send({ message: 'An error occurred while fetching cards.', error });
+      }
+    });
+    
 
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
