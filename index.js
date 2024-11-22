@@ -28,25 +28,44 @@ async function run() {
     const cards = db.collection("cards");
 
     app.get("/users", async (req, res) => {
-        const page = parseInt(req.query.page) || 1; 
-        const limit = parseInt(req.query.limit) || 7; 
-        const skip = (page - 1) * limit; 
-      
-        try {
-          const result = await users.find().skip(skip).limit(limit).toArray();
-          const totalUsers = await users.countDocuments(); 
-          const totalPages = Math.ceil(totalUsers / limit); 
-      
-          res.send({
-            data: result,
-            currentPage: page,
-            totalPages,
-            totalUsers,
-          });
-        } catch (error) {
-          res.status(500).send({ message: 'Error fetching users', error });
-        }
-      });
+      const page = parseInt(req.query.page) || 1;
+      const limit = parseInt(req.query.limit) || 7;
+      const skip = (page - 1) * limit;
+      const search = req.query.search || "";
+      const dateSort = req.query.dateSort || ""; // 'asc' or 'desc'
+      const balanceSort = req.query.balanceSort || ""; // 'asc' or 'desc'
+    
+      try {
+        const query = search
+          ? { username: { $regex: search, $options: "i" } }
+          : {};
+    
+        const sortOptions = {};
+        if (dateSort) sortOptions.createAt = dateSort === "asc" ? 1 : -1;
+        if (balanceSort) sortOptions.balance = balanceSort === "asc" ? 1 : -1;
+    
+        const result = await users
+          .find(query)
+          .sort(sortOptions)
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+    
+        const totalUsers = await users.countDocuments(query);
+        const totalPages = Math.ceil(totalUsers / limit);
+    
+        res.send({
+          data: result,
+          currentPage: page,
+          totalPages,
+          totalUsers,
+        });
+      } catch (error) {
+        res.status(500).send({ message: "Error fetching users", error });
+      }
+    });
+    
+    
       
 app.get('/single-user/:id',async(req,res)=>{
   const id= req.params.id
@@ -111,24 +130,21 @@ app.delete('/delete-user:id',async(req,res)=>{
       const result = await cards.insertOne(data);
       res.send(result);
     })
-    app.get('/all-cards', async (req, res) => {
+    app.get("/all-cards", async (req, res) => {
       try {
-        // Extract query parameters from the URL using req.query
         const {
           page = 1,
           limit = 10,
-          sortField = 'createdAt',
-          sortOrder = 'desc',
-          search = '',
-          filter = 'All', // Filter for card types like Visa or MasterCard
-          expirySort = 'asc' // Expiry date sort order
+          sortField = "createdAt",
+          sortOrder = "desc",
+          search = "",
+          filter = "All",
+          expirySort = "asc",
         } = req.query;
     
-        // Convert pagination parameters to numbers
-        const pageNumber = parseInt(page);
-        const limitNumber = parseInt(limit);
+        const pageNumber = parseInt(page, 10);
+        const limitNumber = parseInt(limit, 10);
     
-        // Validate and sanitize the input values (to prevent invalid queries)
         if (isNaN(pageNumber) || pageNumber <= 0) {
           return res.status(400).json({ message: "Invalid page number" });
         }
@@ -136,39 +152,34 @@ app.delete('/delete-user:id',async(req,res)=>{
           return res.status(400).json({ message: "Invalid limit number" });
         }
     
-        // Calculate the number of documents to skip for pagination
         const skip = (pageNumber - 1) * limitNumber;
     
-        // Build the search filter (search by card number or other fields)
-        const searchFilter = search ? { cardNumber: { $regex: search, $options: 'i' } } : {};
+        // Search Filter
+        const searchFilter = search
+          ? { country: { $regex: search, $options: "i" } }
+          : {};
     
-        // Build the filter for card types if provided (e.g., Visa or MasterCard)
-        const typeFilter = filter !== 'All' ? { type: filter } : {};
+        // Card Type Filter
+        const typeFilter = filter !== "All" ? { type: filter } : {};
     
-        // Combine search and type filters
         const combinedFilter = { ...searchFilter, ...typeFilter };
     
-        // Build the sort object based on the query
+        // Sorting
         const sortOptions = {};
-        sortOptions[sortField] = sortOrder === 'asc' ? 1 : -1;
-    
-        // Add additional sorting for expiry date if needed
-        if (sortField !== 'expiryDate' && expirySort) {
-          sortOptions['expiryDate'] = expirySort === 'asc' ? 1 : -1;
+        sortOptions[sortField] = sortOrder === "asc" ? 1 : -1;
+        if (sortField !== "expiryDate" && expirySort) {
+          sortOptions["expiryDate"] = expirySort === "asc" ? 1 : -1;
         }
     
-        // Retrieve paginated, sorted, and filtered results
         const result = await cards
-          .find(combinedFilter) // Apply both search and type filters
-          .sort(sortOptions) // Sort by the requested field and order
-          .skip(skip) // Apply pagination skip
-          .limit(limitNumber) // Apply pagination limit
+          .find(combinedFilter)
+          .sort(sortOptions)
+          .skip(skip)
+          .limit(limitNumber)
           .toArray();
     
-        // Get the total count for pagination purposes
         const total = await cards.countDocuments(combinedFilter);
     
-        // Send the paginated result along with pagination info
         res.send({
           data: result,
           currentPage: pageNumber,
@@ -176,10 +187,23 @@ app.delete('/delete-user:id',async(req,res)=>{
           totalItems: total,
         });
       } catch (error) {
-        res.status(500).send({ message: 'An error occurred while fetching cards.', error });
+        console.error(error);
+        res.status(500).send({ message: "An error occurred while fetching cards.", error });
       }
     });
-    
+    // Controller for fetching distinct card types
+app.get("/card-types",async (req, res) => {
+  try {
+    const cardTypes = await cards.distinct("cardType"); 
+    res.status(200).json({ success: true, data: cardTypes });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to fetch card types",error });
+  }
+})
+
+// Route for fetching card types
+
+
 
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!"
