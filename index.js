@@ -1,16 +1,29 @@
 const express = require("express");
-const bcrypt = require("bcrypt");
+// const jwt = require("jsonwebtoken");
 const cors = require("cors");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
-
+const admin = require('firebase-admin');
 const app = express();
 const port = process.env.PORT || 5000;
 
 // Middleware
 app.use(express.json());
 app.use(cors());
+const verifyToken = (req, res, next) => {
+  const token = req?.cookies?.token;
 
+  if (!token) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+  jwt.verify(token, process.env.DB_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(401).send({ message: "unauthorized access" });
+    }
+    req.user = decoded;
+    next();
+  });
+};
 const uri = process.env.DB_URL;
 
 const client = new MongoClient(uri, {
@@ -21,12 +34,113 @@ const client = new MongoClient(uri, {
   },
 });
 
+
+const serviceAccount = require('./unknown-2b585-firebase-adminsdk-sz7xw-85e07f7cbe.json');
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
+const authAdmin = admin.auth();
+
 async function run() {
   try {
     const db = client.db("undefind");
     const users = db.collection("users");
     const cards = db.collection("cards");
 
+//------------- user ------------
+    app.delete('/delete-user/:uid', async (req, res) => {
+      const { uid } = req.params;
+      console.log('Email to delete:', uid);
+    
+      try {
+        await authAdmin.deleteUser(uid);
+        return res.status(200).send('User deleted successfully'); 
+      } catch (error) {
+        console.error('Error deleting user:', error);
+        return res.status(500).send('Error deleting user'); 
+      }
+    });
+    
+    
+
+    app.post("/jwt", (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.DB_SECRET);
+      res
+        .cookie("token", token, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+        })
+        .send({ success: true });
+    });
+
+
+
+   
+    const verifyAdmin = async (req, res, next) => {
+      const user = req.user;
+      const query = { email: user?.email };
+      const result = await users.findOne(query);
+
+      if (!result || result?.role !== "admin")
+        
+
+
+        return res.status(401).send({ message: "unauthorized access!!" });
+
+      next();
+    };
+
+
+   
+
+
+
+
+
+
+//------------- user ------------
+
+//--------- authentication------------
+app.post("/register", async (req, res) => {
+  const data = req.body;
+  const userExists = await users.findOne({ username: data.username });
+  if (userExists) {
+    res.send("user Already exist");
+  }
+
+  const result = await users.insertOne(data);
+  res.send(result);
+});
+
+
+
+app.post("/logout", async (req, res) => {
+  const user = req.body;
+  res.clearCookie("token", { maxAge: 0 }).send({ success: true });
+});
+
+
+
+
+app.post("/check-username", async (req, res) => {
+  const { username } = req.body;
+
+  try {
+    const userExists = await users.findOne({ username });
+
+    if (userExists) {
+      return res.json({ exists: true });
+    } else {
+      return res.json({ exists: false });
+    }
+  } catch (error) {
+    return res.status(500).json({ message: "Server error", error });
+  }
+});
+//--------- authentication------------
     app.get("/users", async (req, res) => {
       const page = parseInt(req.query.page) || 1;
       const limit = parseInt(req.query.limit) || 7;
@@ -96,40 +210,17 @@ app.delete('/delete-user:id',async(req,res)=>{
   const result = await users.deleteOne(query)
   res.send(result)
 })
-    // Example in Express.js
-    app.post("/check-username", async (req, res) => {
-      const { username } = req.body;
 
-      try {
-        const userExists = await users.findOne({ username });
+   
 
-        if (userExists) {
-          return res.json({ exists: true });
-        } else {
-          return res.json({ exists: false });
-        }
-      } catch (error) {
-        return res.status(500).json({ message: "Server error", error });
-      }
-    });
-
-    app.post("/register", async (req, res) => {
-      const data = req.body;
-      const userExists = await users.findOne({ username: data.username });
-      if (userExists) {
-        res.send("user Already exist");
-      }
-      const hash = bcrypt.hashSync(data.password, 10);
-      console.log(data, hash);
-      const result = await users.insertOne(data);
-      res.send(result);
-    });
+   
 
     app.post('/add-cards',async(req,res)=>{
       const data = req.body;
       const result = await cards.insertOne(data);
       res.send(result);
     })
+  
     app.get("/all-cards", async (req, res) => {
       try {
         const {
@@ -154,13 +245,13 @@ app.delete('/delete-user:id',async(req,res)=>{
     
         const skip = (pageNumber - 1) * limitNumber;
     
-        // Search Filter
+        // Search Filter (by country)
         const searchFilter = search
           ? { country: { $regex: search, $options: "i" } }
           : {};
     
-        // Card Type Filter
-        const typeFilter = filter !== "All" ? { type: filter } : {};
+        // Card Type Filter (visa, masterCard, etc.)
+        const typeFilter = filter !== "All" ? { cardType: filter } : {};
     
         const combinedFilter = { ...searchFilter, ...typeFilter };
     
@@ -191,6 +282,7 @@ app.delete('/delete-user:id',async(req,res)=>{
         res.status(500).send({ message: "An error occurred while fetching cards.", error });
       }
     });
+    
     // Controller for fetching distinct card types
 app.get("/card-types",async (req, res) => {
   try {
