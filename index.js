@@ -47,6 +47,9 @@ async function run() {
     const db = client.db("undefind");
     const users = db.collection("users");
     const cards = db.collection("cards");
+    const account = db.collection("account");
+    const note = db.collection("note");
+    const request = db.collection("request");
 
 //------------- user ------------
     app.delete('/delete-user/:uid', async (req, res) => {
@@ -146,17 +149,14 @@ app.post("/check-username", async (req, res) => {
       const limit = parseInt(req.query.limit) || 7;
       const skip = (page - 1) * limit;
       const search = req.query.search || "";
-      const dateSort = req.query.dateSort || ""; // 'asc' or 'desc'
-      const balanceSort = req.query.balanceSort || ""; // 'asc' or 'desc'
+     
     
       try {
         const query = search
           ? { username: { $regex: search, $options: "i" } }
           : {};
     
-        const sortOptions = {};
-        if (dateSort) sortOptions.createAt = dateSort === "asc" ? 1 : -1;
-        if (balanceSort) sortOptions.balance = balanceSort === "asc" ? 1 : -1;
+       
     
         const result = await users
           .find(query)
@@ -284,17 +284,143 @@ app.delete('/delete-user:id',async(req,res)=>{
     });
     
     // Controller for fetching distinct card types
-app.get("/card-types",async (req, res) => {
-  try {
-    const cardTypes = await cards.distinct("cardType"); 
-    res.status(200).json({ success: true, data: cardTypes });
-  } catch (error) {
-    res.status(500).json({ success: false, message: "Failed to fetch card types",error });
-  }
+app.post('/add-account',async(req,res)=>{
+  const data = req.body;
+  const result = await account.insertOne(data);
+  res.send(result)
+
 })
 
-// Route for fetching card types
+app.get('/account-details',async(req,res)=>{
+  const result= await account.find().toArray();
+  res.send(result);
+})
+app.delete('/account-delete/:id',async(req,res)=>{
+const id = req.params.id;
+const query = {_id:new ObjectId(id)}
+const result = await account.deleteOne(query)
+  res.send(result);
+})
 
+app.get('/dashboard',async(req,res)=>{
+  const totalUsers = await users.find().toArray();
+  const totalCards = await cards.find().toArray();
+  const totalAccount = await account.find().toArray();
+  const totalNote = await note.find().toArray();
+  res.send({
+    users:totalUsers,
+    cards:totalCards,
+    account:totalAccount,
+    note:totalNote
+  });
+})
+
+
+app.patch("/update-card:id", async (req, res) => {
+  const id = req.params.id;
+  const data = req.body;
+  const query = { _id: new ObjectId(id) };
+  const options = { upsert: true };
+  console.log(data);
+  const info = {
+    $set: {
+      ...data,
+    },
+  };
+  const result = await cards.updateOne(query, info, options);
+  res.send(result);
+});
+
+
+// Route for fetching card types
+app.post('/add-note',async(req,res)=>{
+  const data = req.body;
+  const result = await note.insertOne(data);
+  res.send(result)
+
+})
+
+app.get('/note-details',async(req,res)=>{
+  const result= await note.find().toArray();
+  res.send(result);
+})
+app.delete('/note-delete/:id',async(req,res)=>{
+const id = req.params.id;
+const query = {_id:new ObjectId(id)}
+const result = await note.deleteOne(query)
+  res.send(result);
+})
+
+
+
+app.patch("/update-card:id", async (req, res) => {
+  const id = req.params.id;
+  const data = req.body;
+  const query = { _id: new ObjectId(id) };
+  const options = { upsert: true };
+  console.log(data);
+  const info = {
+    $set: {
+      ...data,
+    },
+  };
+  const result = await cards.updateOne(query, info, options);
+  res.send(result);
+});
+
+
+// Route for fetching card types
+app.post('/add-request',async(req,res)=>{
+  const data = req.body;
+  const result = await request.insertOne(data);
+  res.send(result)
+
+})
+
+app.get('/request-details',async(req,res)=>{
+  const result= await request.find().toArray();
+  res.send(result);
+})
+app.delete('/request-delete/:id',async(req,res)=>{
+const id = req.params.id;
+const query = {_id:new ObjectId(id)}
+const result = await request.deleteOne(query)
+  res.send(result);
+})
+
+
+app.patch("/request-update/:id", async (req, res) => {
+  const id = req.params.id;
+  const { amount, username } = req.body;
+
+
+  try {
+    console.log(`Updating request ${id} for user ${username}`);
+
+    // Update user balance and status
+    const userQuery = { username: username };
+    const userUpdate = {
+      $inc: { balance: parseFloat(amount) }, 
+      $set: { status: "active" },
+    };
+    const userResult = await users.updateOne(userQuery, userUpdate);
+
+    // Update request status
+    const requestQuery = { _id: new ObjectId(id) };
+    const requestUpdate = {
+      $set: { status: "active" },
+    };
+    const requestResult = await request.updateOne(requestQuery, requestUpdate);
+
+   
+
+    
+    res.send(requestResult);
+  } catch (error) {
+    console.error("Error updating request:", error);
+    res.status(500).send({ success: false, error: "Internal server error" });
+  }
+});
 
 
     console.log(
